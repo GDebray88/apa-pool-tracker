@@ -135,7 +135,7 @@ if st.session_state.get("current_user_id") is not None:
 else:
     player_name = ""
 
-st.title(f"🎱 {player_name}'s APA Pool Tracker" if player_name else "🎱 APA Pool Tracker")
+st.title(f"🎱 {player_name}'s Pool Tracker" if player_name else "🎱 Pool Tracker")
 st.write("Track my APA 8-ball and 9-ball matches")
 if "current_user_id" not in st.session_state:
     st.session_state.current_user_id = None
@@ -721,7 +721,7 @@ with tab2:
     cursor.execute("""
     SELECT game, opponent, your_skill, opponent_skill,
         your_score, opponent_score, result,
-        lag_result, rackless, match_points, match_date, session, match_type
+        lag_result, rackless, match_points, match_date, session, match_type, id
     FROM matches
     WHERE user_id = ?
     ORDER BY id DESC
@@ -759,6 +759,44 @@ with tab2:
                     else ""
             )
     )
+            match_id = saved_match[13]
+
+            if st.session_state.get("confirm_delete_match") ==match_id:
+                st.warning("Are you sure you want to delete this match?")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    if st.button(
+                        "Yes, Delete",
+                        key=f"confirm_delete_{match_id}"
+                    ):
+                        cursor.execute(
+                            "DELETE FROM matches WHERE id = ? AND user_id = ?",
+                            (
+                                match_id,
+                                st.session_state.current_user_id
+                            )
+                        )
+                        conn.commit()
+                        st.session_state.confirm_delete_match = None
+                        st.rerun()
+
+                with col2:
+                    if st.button(
+                        "Cancel",
+                        key=f"cancel_delete_{match_id}"
+                    ):
+                        st.session_state.confirm_delete_match = None
+                        st.rerun()
+
+            else:
+                if st.button(
+                    "Delete Match",
+                    key=f"delete_match_{match_id}"
+                ):
+                    st.session_state.confirm_delete_match = match_id
+                    st.rerun()
 
     eight_ball_matches = [match for match in saved_matches if match[0] == "8-ball"]
     nine_ball_matches = [match for match in saved_matches if match[0] == "9-ball"]
@@ -882,15 +920,6 @@ with tab2:
     st.write(
         f"9-ball Record: {tournament_nine_wins} - {tournament_nine_losses}"
     )
-    st.subheader("Test Data")    
-    confirm_clear = st.checkbox("Yes, delete all saved match data")
-    if st.button("Clear Test Data"):
-        if confirm_clear:
-            cursor.execute("DELETE FROM matches")
-            conn.commit()
-            st.success("Test data cleared.")
-        else:
-            st.warning("Check the confirmation box first.")
 
 with tab3:
     st.subheader("Opponent Lookup")

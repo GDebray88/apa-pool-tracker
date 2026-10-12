@@ -1,6 +1,8 @@
 import streamlit as st
 import sqlite3
 import hashlib
+from streamlit_cookies_controller import CookieController
+controller = CookieController()
 
 conn = sqlite3.connect("apa.pool.db")
 cursor = conn.cursor()
@@ -142,6 +144,14 @@ if "current_user_id" not in st.session_state:
 
 if "current_username" not in st.session_state:
     st.session_state.current_username = None
+
+saved_user_id = controller.get("pool_tracker_user_id")
+saved_username = controller.get("pool_tracker_username")
+
+if st.session_state.current_user_id is None and saved_user_id:
+    st.session_state.current_user_id = int(saved_user_id)
+    st.session_state.current_username = saved_username
+
 if st.session_state.current_user_id is None:
     st.subheader("Sign In")
 
@@ -154,6 +164,9 @@ if st.session_state.current_user_id is None:
         "Password",
         type="password",
         key="page_login_password"
+    )
+    stay_signed_in = st.checkbox(
+        "Stay signed in"
     )
 
     if st.button("Sign In", key="page_sign_in"):
@@ -182,6 +195,20 @@ if st.session_state.current_user_id is None:
             if login_user:
                 st.session_state.current_user_id = login_user[0]
                 st.session_state.current_username = login_user[1]
+
+                if stay_signed_in:
+                    controller.set(
+                        "pool_tracker_user_id",
+                        str(login_user[0])
+                    )
+                    controller.set(
+                        "pool_tracker_username",
+                        login_user[1]
+                    )
+                else:
+                    controller.remove("pool_tracker_user_id")
+                    controller.remove("pool_tracker_username")
+
                 st.rerun()
             else:
                 st.error("Incorrect username or password")
@@ -728,75 +755,6 @@ with tab2:
     """, (st.session_state.current_user_id,))
 
     saved_matches = cursor.fetchall()
-    if saved_matches:
-        st.subheader("Match History")
-
-        for saved_match in saved_matches:
-            if saved_match[0] == "8-ball":
-                score_type = "Games"
-            else:
-                score_type = "Points"
-
-            if saved_match[10]:
-                year, month, day = saved_match[10].split("-")
-                display_date = f"{month}/{day}/{year}"
-            else:
-                display_date = "No Date"
-                
-            st.write(
-                f"{display_date} | "
-                f"{saved_match[11]} | "
-                f"{saved_match[12]} | "
-                f"{saved_match[1]} | "
-                f"SL {saved_match[2]} vs {saved_match[3]} | "
-                f"{score_type}: {saved_match[4]} - {saved_match[5]} | "
-                f"{saved_match[6]} | "
-                f"Match Points: {saved_match[9]} | "
-                f"Lag: {saved_match[7]}"
-                + (
-                    f" | Rackless: {'Yes' if saved_match[8] else 'No'}"
-                    if saved_match[0] == "8-ball"
-                    else ""
-            )
-    )
-            match_id = saved_match[13]
-
-            if st.session_state.get("confirm_delete_match") ==match_id:
-                st.warning("Are you sure you want to delete this match?")
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    if st.button(
-                        "Yes, Delete",
-                        key=f"confirm_delete_{match_id}"
-                    ):
-                        cursor.execute(
-                            "DELETE FROM matches WHERE id = ? AND user_id = ?",
-                            (
-                                match_id,
-                                st.session_state.current_user_id
-                            )
-                        )
-                        conn.commit()
-                        st.session_state.confirm_delete_match = None
-                        st.rerun()
-
-                with col2:
-                    if st.button(
-                        "Cancel",
-                        key=f"cancel_delete_{match_id}"
-                    ):
-                        st.session_state.confirm_delete_match = None
-                        st.rerun()
-
-            else:
-                if st.button(
-                    "Delete Match",
-                    key=f"delete_match_{match_id}"
-                ):
-                    st.session_state.confirm_delete_match = match_id
-                    st.rerun()
 
     eight_ball_matches = [match for match in saved_matches if match[0] == "8-ball"]
     nine_ball_matches = [match for match in saved_matches if match[0] == "9-ball"]
@@ -921,6 +879,76 @@ with tab2:
         f"9-ball Record: {tournament_nine_wins} - {tournament_nine_losses}"
     )
 
+    if saved_matches:
+        st.subheader("Match History")
+        show_all_matches = st.checkbox("Show All Match History")
+
+        for saved_match in (saved_matches if show_all_matches else saved_matches[:5]):
+            if saved_match[0] == "8-ball":
+                score_type = "Games"
+            else:
+                score_type = "Points"
+
+            if saved_match[10]:
+                year, month, day = saved_match[10].split("-")
+                display_date = f"{month}/{day}/{year}"
+            else:
+                display_date = "No Date"
+                
+            st.write(
+                f"{display_date} | "
+                f"{saved_match[11]} | "
+                f"{saved_match[12]} | "
+                f"{saved_match[1]} | "
+                f"SL {saved_match[2]} vs {saved_match[3]} | "
+                f"{score_type}: {saved_match[4]} - {saved_match[5]} | "
+                f"{saved_match[6]} | "
+                f"Match Points: {saved_match[9]} | "
+                f"Lag: {saved_match[7]}"
+                + (
+                    f" | Rackless: {'Yes' if saved_match[8] else 'No'}"
+                    if saved_match[0] == "8-ball"
+                    else ""
+            )
+    )
+            match_id = saved_match[13]
+
+            if st.session_state.get("confirm_delete_match") ==match_id:
+                st.warning("Are you sure you want to delete this match?")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    if st.button(
+                        "Yes, Delete",
+                        key=f"confirm_delete_{match_id}"
+                    ):
+                        cursor.execute(
+                            "DELETE FROM matches WHERE id = ? AND user_id = ?",
+                            (
+                                match_id,
+                                st.session_state.current_user_id
+                            )
+                        )
+                        conn.commit()
+                        st.session_state.confirm_delete_match = None
+                        st.rerun()
+
+                with col2:
+                    if st.button(
+                        "Cancel",
+                        key=f"cancel_delete_{match_id}"
+                    ):
+                        st.session_state.confirm_delete_match = None
+                        st.rerun()
+
+            else:
+                if st.button(
+                    "Delete Match",
+                    key=f"delete_match_{match_id}"
+                ):
+                    st.session_state.confirm_delete_match = match_id
+                    st.rerun()
 with tab3:
     st.subheader("Opponent Lookup")
 
@@ -987,5 +1015,7 @@ with tab4:
         if st.button("Sign Out"):
             st.session_state.current_user_id = None
             st.session_state.current_username = None
+            controller.remove("pool_tracker_user_id")
+            controller.remove("pool_tracker_username")
             st.rerun()
     st.divider()

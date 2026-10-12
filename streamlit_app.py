@@ -209,7 +209,7 @@ if st.session_state.current_user_id is None:
                     controller.remove("pool_tracker_user_id")
                     controller.remove("pool_tracker_username")
 
-                st.rerun()
+                st.session_state.login_complete = True
             else:
                 st.error("Incorrect username or password")
     if st.button("Create Account", key="show_create_account_button"):

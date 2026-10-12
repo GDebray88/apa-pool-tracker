@@ -50,6 +50,26 @@ CREATE TABLE IF NOT EXISTS users (
 """)
 conn.commit()
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS teams (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_name TEXT NOT NULL,
+    game TEXT NOT NULL,
+    user_id INTEGER NOT NULL
+    )
+    """)
+conn.commit()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS team_players (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id INTEGER NOT NULL,
+    player_name TEXT NOT NULL,
+    skill_level INTEGER NOT NULL
+    )
+    """)
+conn.commit()
+
 try:
     cursor.execute("ALTER TABLE matches ADD COLUMN user_id INTEGER")
     conn.commit()
@@ -276,11 +296,12 @@ if st.session_state.current_user_id is None:
 
     st.stop()
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Enter Match",
     "History & Stats",
     "Opponent Lookup",
-    "Account"
+    "Teams"
+,    "Account"
 ])
 with tab1:
     game_type = st.selectbox(
@@ -1004,8 +1025,148 @@ with tab3:
             st.write(f"9-ball Record: {nine_ball_wins} - {nine_ball_losses}")
         else:
             st.info("No saved opponents yet.")
-            
+
 with tab4:
+    st.subheader("Teams")
+
+    team_game = st.selectbox(
+        "Game",
+        ["8-ball", "9-ball"],
+        key="team_game"
+    )
+
+    new_team_name = st.text_input(
+        "Team Name",
+        key="new_team_name"
+    )
+
+    if st.button("Create Team"):
+        if new_team_name.strip():
+            cursor.execute(
+                """
+                INSERT INTO teams (team_name, game, user_id)
+                Values (?, ?, ?)
+                """,
+                (
+                    new_team_name.strip(),
+                    team_game,
+                    st.session_state.current_user_id
+                )
+            )
+            conn.commit()
+            st.success(f"{new_team_name.strip()} created!")
+            st.rerun()
+        else:
+            st.warning("Enter a team name first.")
+
+    cursor.execute(
+        """
+        SELECT id, team_name, game
+        FROM teams
+        WHERE user_id = ?
+        ORDER BY team_name
+        """,
+        (st.session_state.current_user_id,)
+    )
+    saved_teams = cursor.fetchall()
+
+    if saved_teams:
+        selected_team = st.selectbox(
+            "Select Team",
+            saved_teams,
+            format_func=lambda team: f"{team[1]} ({team[2]})"
+        )
+        
+        st.subheader(f"{selected_team[1]} Roster")
+
+        new_player_name = st.text_input(
+            "Player Name",
+            key="new_player_name"
+        )
+
+    if selected_team[2] == "8-ball":
+        skill_levels = list(range(2, 8))
+    else:
+        skill_levels = list(range(1, 10))
+
+    new_player_skill = st.selectbox(
+        "Skill Level",
+        skill_levels,
+        key="new_player_skill"
+    )
+
+    if st.button("Add Player"):
+        if new_player_name.strip():
+            cursor.execute(
+                """
+                INSERT INTO team_players (
+                    team_id,
+                    player_name,
+                    skill_level
+                )
+                Values (?, ?, ?)
+                """,
+                (
+                    selected_team[0],
+                    new_player_name.strip(),
+                    new_player_skill
+                )
+            )
+            conn.commit()
+            st.success(
+                f"{new_player_name.strip()} added to {selected_team[1]}!"
+            )
+            st.rerun()
+        else:
+            st.warning("Enter a player name first.")
+
+    cursor.execute(
+        """
+        SELECT id, player_name, skill_level
+        FROM team_players
+        WHERE team_id = ?
+        ORDER BY player_name
+        """,
+        (selected_team[0],)
+    )
+
+    roster_players = cursor.fetchall()
+
+    if roster_players:
+        st.write("### Current Roster")
+
+        for player in roster_players:
+            player_id = player[0]
+            player_name = player[1]
+            player_skill = player[2]
+
+            st.write(f"{player_name} - SL{player_skill}")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button(
+                    "Change Skill Level",
+                    key=f"edit_player_{player_id}"
+                ):
+                    st.session_state.edit_player_id = player_id
+
+            with col2:
+                if st.button(
+                    "Remove Player",
+                    key=f"remove_player_{player_id}"
+                ):
+                    cursor.execute(
+                        "DELETE FROM team_players WHERE id = ? AND team_id = ?",
+                        (player_id, selected_team[0])
+                    )
+                    conn.commit()
+                    st.rerun()
+
+    else:
+        st.info("No players added to this team yet.")
+
+with tab5:
     st.subheader("Account")
 
     if st.session_state.current_user_id is not None:

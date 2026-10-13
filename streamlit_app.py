@@ -1,6 +1,7 @@
 import streamlit as st
 import sqlite3
 import hashlib
+from datetime import datetime
 from streamlit_cookies_controller import CookieController
 controller = CookieController()
 
@@ -24,6 +25,11 @@ conn.commit()
 
 try:
     cursor.execute("ALTER TABLE matches ADD COLUMN match_points TEXT")
+    conn.commit()
+except sqlite3.OperationalError:
+    pass
+try:
+    cursor.execute("ALTER TABLE matches ADD COLUMN team_id INTEGER")
     conn.commit()
 except sqlite3.OperationalError:
     pass
@@ -136,6 +142,10 @@ eight_ball_races = {
     (7, 6): (5, 4),
     (7, 7): (5, 5),
 }
+
+# Unranked 8-ball players race to 2 wins
+UR_EIGHT_BALL_RACE = 2
+
 nine_ball_points = {
     1: 14,
     2: 19,
@@ -343,10 +353,47 @@ with tab1:
             (st.session_state.current_user_id,)
         )
         saved_opponents = [row[0] for row in cursor.fetchall()]
+    
+    cursor.execute(
+        """
+        SELECT id, team_name
+        FROM teams
+        WHERE user_id = ?
+        ORDER BY team_name
+        """,
+        (st.session_state.current_user_id,)
+    )
+
+    match_teams = cursor.fetchall()
+
+    team_options = [(None, "No Team")] + match_teams
+
+    selected_match_team = st.selectbox(
+        "Opponent Team",
+        team_options,
+        format_func=lambda team: team[1]
+    )
+
+    if selected_match_team[0] is not None:
+        cursor.execute(
+            """
+            SELECT player_name
+            FROM team_players
+            WHERE team_id = ?
+            ORDER BY player_name
+            """,
+            (selected_match_team[0],)
+        )
+
+        roster_opponents = [row[0] for row in cursor.fetchall()]
+        opponent_options = ["Add New Opponent"] + roster_opponents
+
+    else:
+        opponent_options = ["Add New Opponent"] + saved_opponents
 
     opponent_choice = st.selectbox(
         "Opponent",
-        ["Add New Opponent"] + saved_opponents
+        opponent_options
     )
 
     if opponent_choice == "Add New Opponent":
@@ -365,21 +412,47 @@ with tab1:
     else:
         min_skill = 1
         max_skill = 9
-    your_skill_level = st.number_input(
+
+    skill_options = ["UR"] + list(range(min_skill, max_skill + 1))
+
+    your_skill_level = st.selectbox(
         "Your skill level",
-        min_value=min_skill,
-        max_value=max_skill,
-        value=4
-    )
-    opponent_skill_level = st.number_input(
+        skill_options,
+        index=skill_options.index(4)
+)
+
+    opponent_default_skill = 4
+
+    if selected_match_team[0] is not None and opponent_choice != "Add New Opponent":
+        cursor.execute(
+            """
+            SELECT skill_level
+            FROM team_players
+            WHERE team_id = ? AND player_name = ?
+            """,
+            (
+                selected_match_team[0],
+                opponent_choice
+            )
+        )
+
+        roster_skill = cursor.fetchone()
+
+        if roster_skill and roster_skill[0] in skill_options:
+            opponent_default_skill = roster_skill[0]
+
+    opponent_skill_level = st.selectbox(
         "Opponents skill level",
-        min_value=min_skill,
-        max_value=max_skill,
-        value=4
+        skill_options,
+        index=skill_options.index(opponent_default_skill)
     )
+
     if game_type == "8-ball":
+        race_your_skill = 3 if your_skill_level == "UR" else your_skill_level
+        race_opponent_skill = 3 if opponent_skill_level == "UR" else opponent_skill_level
+
         your_race, opponent_race = eight_ball_races[
-            (your_skill_level, opponent_skill_level)
+            (race_your_skill, race_opponent_skill)
         ]
 
         st.write(
@@ -743,25 +816,27 @@ with tab1:
         match_date,
         session,
         user_id,
-        match_type
+        match_type,
+        team_id
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        game_type,
-        opponent_name,
-        your_skill_level,
-        opponent_skill_level,
-        your_game,
-        opponent_games,
-        match["result"],
-        lag_result,
-        1 if rackless else 0,
-        str(eight_ball_match_points) if game_type == "8-ball" else nine_ball_result,
-        str(match_date),
-        session,
-        st.session_state.current_user_id,
-        match_type
-    ))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            game_type,
+            opponent_name,
+            your_skill_level,
+            opponent_skill_level,
+            your_game,
+            opponent_games,
+            match["result"],
+            lag_result,
+            1 if rackless else 0,
+            str(eight_ball_match_points) if game_type == "8-ball" else nine_ball_result,
+            str(match_date),
+            session,
+            st.session_state.current_user_id,
+            match_type,
+            selected_match_team[0]
+        ))
 
         conn.commit()
 
@@ -769,7 +844,7 @@ with tab2:
     cursor.execute("""
     SELECT game, opponent, your_skill, opponent_skill,
         your_score, opponent_score, result,
-        lag_result, rackless, match_points, match_date, session, match_type, id
+        lag_result, rackless, match_points, match_date, session, match_type, id, team_id
     FROM matches
     WHERE user_id = ?
     ORDER BY id DESC
@@ -916,60 +991,240 @@ with tab2:
             else:
                 display_date = "No Date"
                 
+            team_name = "No Team"
+
+            if saved_match[14] is not None:
+                cursor.execute(
+                    """
+                    SELECT team_name
+                    FROM teams
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (
+                        saved_match[14],
+                        st.session_state.current_user_id
+                    )
+                )
+
+                team_result = cursor.fetchone()
+
+                if team_result:
+                    team_name = team_result[0]
+            
             st.write(
-                f"{display_date} | "
-                f"{saved_match[11]} | "
                 f"{saved_match[12]} | "
+                f"{saved_match[11]} | "
+                f"{display_date} | "
+                f"{team_name} | "
                 f"{saved_match[1]} | "
-                f"SL {saved_match[2]} vs {saved_match[3]} | "
-                f"{score_type}: {saved_match[4]} - {saved_match[5]} | "
+                f"SL{saved_match[2]} | "
+                f"SL{saved_match[3]} | "
                 f"{saved_match[6]} | "
+                f"{score_type}: {saved_match[4]} - {saved_match[5]} | "
                 f"Match Points: {saved_match[9]} | "
                 f"Lag: {saved_match[7]}"
                 + (
                     f" | Rackless: {'Yes' if saved_match[8] else 'No'}"
                     if saved_match[0] == "8-ball"
                     else ""
+                )
             )
-    )
             match_id = saved_match[13]
 
-            if st.session_state.get("confirm_delete_match") ==match_id:
-                st.warning("Are you sure you want to delete this match?")
+            if st.button(
+                "Edit Match",
+                key=f"edit_match_{match_id}"
+            ):
+                st.session_state.edit_match_id = match_id
+                st.rerun()
+            if st.session_state.get("edit_match_id") == match_id:
+                st.write("### Edit Match")
 
-                col1, col2 = st.columns(2)
+                # 1. Match Type
+                match_type_options = ["League", "Tournament", "Sudden Death"]
 
-                with col1:
-                    if st.button(
-                        "Yes, Delete",
-                        key=f"confirm_delete_{match_id}"
-                    ):
-                        cursor.execute(
-                            "DELETE FROM matches WHERE id = ? AND user_id = ?",
-                            (
-                                match_id,
-                                st.session_state.current_user_id
-                            )
-                        )
-                        conn.commit()
-                        st.session_state.confirm_delete_match = None
-                        st.rerun()
+                edit_match_type = st.selectbox(
+                    "Match Type",
+                    match_type_options,
+                    index=match_type_options.index(saved_match[12]),
+                    key=f"edit_match_type_{match_id}"
+                )
 
-                with col2:
-                    if st.button(
-                        "Cancel",
-                        key=f"cancel_delete_{match_id}"
-                    ):
-                        st.session_state.confirm_delete_match = None
-                        st.rerun()
+                # 2. Session
+                session_options = [
+                    "Spring 2026",
+                    "Summer 2026",
+                    "Fall 2026",
+                    "Spring 2027",
+                    "Summer 2027",
+                    "Fall 2027",
+                    "Spring 2028",
+                    "Summer 2028",
+                    "Fall 2028"
+                ]
 
-            else:
+                edit_session = st.selectbox(
+                    "Session",
+                    session_options,
+                    index=session_options.index(saved_match[11]),
+                    key=f"edit_session_{match_id}"
+                )
+
+                # 3. Match Date
+                edit_date = st.date_input(
+                    "Match Date",
+                    value=datetime.strptime(saved_match[10], "%Y-%m-%d").date(),
+                    key=f"edit_date_{match_id}"
+                )
+
+                # 4. Team Name
+                cursor.execute(
+                    """
+                    SELECT id, team_name
+                    FROM teams
+                    WHERE user_id = ?
+                    ORDER BY team_name
+                    """,
+                    (st.session_state.current_user_id,)
+                )
+
+                edit_teams = cursor.fetchall()
+
+                team_options = [(None, "No Team")] + edit_teams
+                
+                selected_team_index = 0
+
+                for i, team in enumerate(team_options):
+                    if team[0] == saved_match[14]:
+                        selected_team_index = i
+                        break
+
+                edit_team = st.selectbox(
+                    "Team",
+                    team_options,
+                    index=selected_team_index,
+                    format_func=lambda team: team[1],
+                    key=f"edit_team_{match_id}"
+                )
+
+                # 5. Opponent Name
+                edit_opponent = st.text_input(
+                    "Opponent",
+                    value=saved_match[1],
+                    key=f"edit_opponent_{match_id}"
+                )
+
+                # 6. My Skill Level
+                edit_your_skill = st.number_input(
+                    "Your Skill Level",
+                    min_value=1,
+                    max_value=9,
+                    value=saved_match[2],
+                    step=1,
+                    key=f"edit_your_skill_{match_id}"
+                )
+
+                # 7. Opponent Skill Level
+                edit_opponent_skill = st.number_input(
+                    "Opponent Skill Level",
+                    min_value=1,
+                    max_value=9,
+                    value=saved_match[3],
+                    step=1,
+                    key=f"edit_opponent_skill_{match_id}"
+                )
+
+                # 8. Result
+                result_options = ["W", "L"]
+
+                edit_result = st.selectbox(
+                    "Result",
+                    result_options,
+                    index=result_options.index(saved_match[6]),
+                    key=f"edit_result_{match_id}"
+                )
+
+                # 9. My Points / Games
+                edit_your_score = st.number_input(
+                    "Your Points" if saved_match[0] == "9-ball" else "Your Games",
+                    min_value=0,
+                    value=saved_match[4],
+                    step=1,
+                    key=f"edit_your_score_{match_id}"
+                )
+
+                # 10. Opponent Points / Games
+                edit_opponent_score = st.number_input(
+                    "Opponent Points" if saved_match[0] == "9-ball" else "Opponent Games",
+                    min_value=0,
+                    value=saved_match[5],
+                    step=1,
+                    key=f"edit_opponent_score_{match_id}"
+                )
+
+                # 11. Lag Result
+                lag_options = ["Won", "Lost"]
+
+                edit_lag_result = st.selectbox(
+                    "Lag Result",
+                    lag_options,
+                    index=lag_options.index(saved_match[7]),
+                    key=f"edit_lag_result_{match_id}"
+                )
+
+                # 12. Rackless - 8-ball only
+                if saved_match[0] == "8-ball":
+                    edit_rackless = st.checkbox(
+                        "Rackless",
+                        value=bool(saved_match[8]),
+                        key=f"edit_rackless_{match_id}"
+                    )
+                else:
+                    edit_rackless = False
+
                 if st.button(
-                    "Delete Match",
-                    key=f"delete_match_{match_id}"
+                    "Save Changes",
+                    key=f"save_match_{match_id}"
                 ):
-                    st.session_state.confirm_delete_match = match_id
+                    cursor.execute(
+                        """
+                        UPDATE matches
+                        SET opponent = ?,
+                            your_skill = ?,
+                            opponent_skill = ?,
+                            result = ?,
+                            your_score = ?,
+                            opponent_score = ?,
+                            lag_result = ?,
+                            rackless = ?,
+                            match_date = ?,
+                            team_id = ?,
+                            session = ?,
+                            match_type = ?
+                        WHERE id = ? AND user_id = ?
+                        """,
+                        (
+                            edit_opponent.strip(),
+                            edit_your_skill,
+                            edit_opponent_skill,
+                            edit_result,
+                            edit_your_score,
+                            edit_opponent_score,
+                            edit_lag_result,
+                            1 if edit_rackless else 0,
+                            str(edit_date),
+                            edit_team[0],
+                            edit_session,
+                            edit_match_type,
+                            match_id,
+                            st.session_state.current_user_id
+                        )
+                    )
+
+                    conn.commit()
+                    st.session_state.edit_match_id = None
                     st.rerun()
+
 with tab3:
     st.subheader("Opponent Lookup")
 

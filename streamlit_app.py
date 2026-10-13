@@ -1084,10 +1084,10 @@ with tab4:
             key="new_player_name"
         )
 
-    if selected_team[2] == "8-ball":
-        skill_levels = list(range(2, 8))
-    else:
-        skill_levels = list(range(1, 10))
+        if selected_team[2] == "8-ball":
+            skill_levels = list(range(2, 8))
+        else:
+            skill_levels = list(range(1, 10))
 
     new_player_skill = st.selectbox(
         "Skill Level",
@@ -1150,6 +1150,33 @@ with tab4:
                     key=f"edit_player_{player_id}"
                 ):
                     st.session_state.edit_player_id = player_id
+            if st.session_state.get("edit_player_id") == player_id:
+                updated_skill = st.selectbox(
+                    "New Skill Level",
+                    skill_levels,
+                    index=skill_levels.index(player_skill),
+                    key=f"updated_skill_{player_id}"
+                )
+
+                if st.button(
+                    "Save Skill Level",
+                    key=f"save_skill_{player_id}"
+                ):
+                    cursor.execute(
+                        """
+                        UPDATE team_players
+                        SET skill_level = ?
+                        WHERE id = ? AND team_id = ?
+                        """,
+                        (
+                            updated_skill,
+                            player_id,
+                            selected_team[0]
+                        )
+                    )
+                    conn.commit()
+                    st.session_state.edit_player_id = None
+                    st.rerun()
 
             with col2:
                 if st.button(

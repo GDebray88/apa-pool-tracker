@@ -1089,109 +1089,109 @@ with tab4:
         else:
             skill_levels = list(range(1, 10))
 
-    new_player_skill = st.selectbox(
-        "Skill Level",
-        skill_levels,
-        key="new_player_skill"
-    )
+        new_player_skill = st.selectbox(
+            "Skill Level",
+            skill_levels,
+            key="new_player_skill"
+        )
 
-    if st.button("Add Player"):
-        if new_player_name.strip():
-            cursor.execute(
-                """
-                INSERT INTO team_players (
-                    team_id,
-                    player_name,
-                    skill_level
+        if st.button("Add Player"):
+            if new_player_name.strip():
+                cursor.execute(
+                    """
+                    INSERT INTO team_players (
+                        team_id,
+                        player_name,
+                        skill_level
+                    )
+                    Values (?, ?, ?)
+                    """,
+                    (
+                        selected_team[0],
+                        new_player_name.strip(),
+                        new_player_skill
+                    )
                 )
-                Values (?, ?, ?)
-                """,
-                (
-                    selected_team[0],
-                    new_player_name.strip(),
-                    new_player_skill
+                conn.commit()
+                st.success(
+                    f"{new_player_name.strip()} added to {selected_team[1]}!"
                 )
-            )
-            conn.commit()
-            st.success(
-                f"{new_player_name.strip()} added to {selected_team[1]}!"
-            )
-            st.rerun()
-        else:
-            st.warning("Enter a player name first.")
+                st.rerun()
+            else:
+                st.warning("Enter a player name first.")
 
-    cursor.execute(
-        """
-        SELECT id, player_name, skill_level
-        FROM team_players
-        WHERE team_id = ?
-        ORDER BY player_name
-        """,
-        (selected_team[0],)
-    )
+        cursor.execute(
+            """
+            SELECT id, player_name, skill_level
+            FROM team_players
+            WHERE team_id = ?
+            ORDER BY player_name
+            """,
+            (selected_team[0],)
+        )
 
-    roster_players = cursor.fetchall()
+        roster_players = cursor.fetchall()
 
-    if roster_players:
-        st.write("### Current Roster")
+        if roster_players:
+            st.write("### Current Roster")
 
-        for player in roster_players:
-            player_id = player[0]
-            player_name = player[1]
-            player_skill = player[2]
+            for player in roster_players:
+                player_id = player[0]
+                player_name = player[1]
+                player_skill = player[2]
 
-            st.write(f"{player_name} - SL{player_skill}")
+                st.write(f"{player_name} - SL{player_skill}")
 
-            col1, col2 = st.columns(2)
+                col1, col2 = st.columns(2)
 
-            with col1:
-                if st.button(
-                    "Change Skill Level",
-                    key=f"edit_player_{player_id}"
-                ):
-                    st.session_state.edit_player_id = player_id
-            if st.session_state.get("edit_player_id") == player_id:
-                updated_skill = st.selectbox(
-                    "New Skill Level",
-                    skill_levels,
-                    index=skill_levels.index(player_skill),
-                    key=f"updated_skill_{player_id}"
-                )
+                with col1:
+                    if st.button(
+                        "Change Skill Level",
+                        key=f"edit_player_{player_id}"
+                    ):
+                        st.session_state.edit_player_id = player_id
+                if st.session_state.get("edit_player_id") == player_id:
+                    updated_skill = st.selectbox(
+                        "New Skill Level",
+                        skill_levels,
+                        index=skill_levels.index(player_skill),
+                        key=f"updated_skill_{player_id}"
+                    )
 
-                if st.button(
-                    "Save Skill Level",
-                    key=f"save_skill_{player_id}"
-                ):
-                    cursor.execute(
-                        """
-                        UPDATE team_players
-                        SET skill_level = ?
-                        WHERE id = ? AND team_id = ?
-                        """,
-                        (
-                            updated_skill,
-                            player_id,
-                            selected_team[0]
+                    if st.button(
+                        "Save Skill Level",
+                        key=f"save_skill_{player_id}"
+                    ):
+                        cursor.execute(
+                            """
+                            UPDATE team_players
+                            SET skill_level = ?
+                            WHERE id = ? AND team_id = ?
+                            """,
+                            (
+                                updated_skill,
+                                player_id,
+                                selected_team[0]
+                            )
                         )
-                    )
-                    conn.commit()
-                    st.session_state.edit_player_id = None
-                    st.rerun()
+                        conn.commit()
+                        st.session_state.edit_player_id = None
+                        st.rerun()
 
-            with col2:
-                if st.button(
-                    "Remove Player",
-                    key=f"remove_player_{player_id}"
-                ):
-                    cursor.execute(
-                        "DELETE FROM team_players WHERE id = ? AND team_id = ?",
-                        (player_id, selected_team[0])
-                    )
-                    conn.commit()
-                    st.rerun()
+                with col2:
+                    if st.button(
+                        "Remove Player",
+                        key=f"remove_player_{player_id}"
+                    ):
+                        cursor.execute(
+                            "DELETE FROM team_players WHERE id = ? AND team_id = ?",
+                            (player_id, selected_team[0])
+                        )
+                        conn.commit()
+                        st.rerun()
 
-    else:
-        st.info("No players added to this team yet.")
+        else:
+            st.info("No players added to this team yet.")
 
 with tab5:
     st.subheader("Account")

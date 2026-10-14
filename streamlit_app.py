@@ -1162,7 +1162,14 @@ with tab2:
                     key=f"edit_opponent_score_{match_id}"
                 )
 
-                # 11. Lag Result
+                # 11. Match Points
+                edit_match_points = st.text_input(
+                    "Match Points",
+                    value=str(saved_match[9]),
+                    key=f"edit_match_points_{match_id}"
+                )
+
+                # 12. Lag Result
                 lag_options = ["Won", "Lost"]
 
                 edit_lag_result = st.selectbox(
@@ -1172,7 +1179,7 @@ with tab2:
                     key=f"edit_lag_result_{match_id}"
                 )
 
-                # 12. Rackless - 8-ball only
+                # 13. Rackless - 8-ball only
                 if saved_match[0] == "8-ball":
                     edit_rackless = st.checkbox(
                         "Rackless",

@@ -1,108 +1,37 @@
 import streamlit as st
-import sqlite3
+import psycopg
 import hashlib
 from datetime import datetime
 from streamlit_cookies_controller import CookieController
 controller = CookieController()
 
-conn = sqlite3.connect("apa.pool.db")
-cursor = conn.cursor()
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS matches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    game TEXT,
-    opponent TEXT,
-    your_skill INTEGER,
-    opponent_skill INTEGER,
-    your_score INTEGER,
-    opponent_score INTEGER,
-    result TEXT,
-    lag_result TEXT,
-    rackless INTEGER
+class CompatibleCursor:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def execute(self, query, params=None):
+        query = query.replace("?", "%s")
+        if params is None:
+            return self._cursor.execute(query)
+        return self._cursor.execute(query, params)
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+conn = psycopg.connect(
+    host=st.secrets["DB_HOST"],
+    port=st.secrets["DB_PORT"],
+    dbname=st.secrets["DB_NAME"],
+    user=st.secrets["DB_USER"],
+    password=st.secrets["DB_PASSWORD"]
 )
-""")
-conn.commit()
-
-try:
-    cursor.execute("ALTER TABLE matches ADD COLUMN match_points TEXT")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
-try:
-    cursor.execute("ALTER TABLE matches ADD COLUMN team_id INTEGER")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
-
-try:
-    cursor.execute("ALTER TABLE matches ADD COLUMN match_date TEXT")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
-try:
-    cursor.execute("ALTER TABLE matches ADD COLUMN session TEXT")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    display_name TEXT NOT NULL,
-    email TEXT UNIQUE,
-    password_hash TEXT
-)
-""")
-conn.commit()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS teams (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_name TEXT NOT NULL,
-    game TEXT NOT NULL,
-    user_id INTEGER NOT NULL
-    )
-    """)
-conn.commit()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS team_players (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id INTEGER NOT NULL,
-    player_name TEXT NOT NULL,
-    skill_level INTEGER NOT NULL
-    )
-    """)
-conn.commit()
-
-try:
-    cursor.execute("ALTER TABLE matches ADD COLUMN user_id INTEGER")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
-
-try:
-    cursor.execute("ALTER TABLE matches ADD COLUMN match_type TEXT")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
-
-try:
-    cursor.execute("ALTER TABLE matches ADD COLUMN match_type TEXT")
-    conn.commit()
-except sqlite3.OperationalError:
-    pass
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS opponents (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTERGER NOT NULL,
-    name TEXT NOT NULL,
-    UNIQUE(user_id, name)
-)
-""")
-conn.commit()
+cursor = CompatibleCursor(conn.cursor())
 
 eight_ball_races = {
     (2, 2): (2, 2),
@@ -285,6 +214,7 @@ if st.session_state.current_user_id is None:
                         """
                         INSERT INTO users (username, display_name, email, password_hash)
                         VALUES (?, ?, ?, ?)
+                        RETURNING id
                         """,
                         (
                             username_clean,
@@ -293,15 +223,16 @@ if st.session_state.current_user_id is None:
                             password_hash
                         )
                     )
+                    
+                    new_user_id = cursor.fetchone()[0]
                     conn.commit()
-    
-                    new_user_id = cursor.lastrowid
     
                     st.success(
                         f"Account created! Your User ID is #{new_user_id}"
                     )
     
-                except sqlite3.IntegrityError:
+                except psycopg.IntegrityError:
+                    conn.rollback()
                     st.error("That username or email is already being used.")
 
     st.stop()
